@@ -1,0 +1,219 @@
+/*
+ * Estilos base de OpticaHefesto.
+ *
+ * UNA SOLA FUENTE, SIN DEPENDENCIAS
+ * ---------------------------------
+ * No hay framework de CSS ni biblioteca de componentes. La aplicacion maneja
+ * datos de salud y carga poco: cada kilobyte de JavaScript de mas es un
+ * kilobyte que se descarga en un mostrador con conexion mala, que es el caso
+ * mas comun en una optica de barrio.
+ *
+ * COLORES
+ * -------
+ * No se define ningun color de marca. Hefesto Studio no tiene paleta definida
+ * para esta aplicacion y no se inventa una aqui.
+ *
+ * ESTADOS QUE NO SE CONFUNDEN CON EL COLOR SOLO
+ * --------------------------------------------
+ * El estado de un pedido o de un control de calidad va con una ETIQUETA, no
+ * solo con un color. El rojo y el verde solos no significan nada para quien
+ * tiene daltonismo, y esta es una pantalla que se usa rapido, de pie, con
+ * la gente esperando.
+ */
+
+:root {
+  --borde: #d4d4d8;
+  --borde-suave: #e7e7ea;
+  --fondo: #fafafa;
+  --superficie: #ffffff;
+  --texto: #18181b;
+  --texto-suave: #52525b;
+  --texto-tenue: #71717a;
+
+  --acento: #1d4ed8;
+  --acento-oscuro: #1e3a8a;
+
+  /* Estado. Cada uno lleva etiqueta en pantalla, el color es solo apoyo. */
+  --ok: #15803d;
+  --ok-fondo: #f0fdf4;
+  --aviso: #a16207;
+  --aviso-fondo: #fefce8;
+  --peligro: #b91c1c;
+  --peligro-fondo: #fef2f2;
+  --neutro: #52525b;
+  --neutro-fondo: #f4f4f5;
+
+  --radio: 4px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--fondo);
+  color: var(--texto);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+h1 { font-size: 1.4rem; margin: 0 0 0.5rem; }
+h2 { font-size: 1.15rem; margin: 1.5rem 0 0.5rem; }
+h3 { font-size: 1rem; margin: 1rem 0 0.4rem; }
+
+a {
+  color: var(--acento);
+  text-decoration: none;
+}
+
+a:hover { text-decoration: underline; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  overflow: hidden;
+}
+
+th, td {
+  text-align: left;
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--borde-suave);
+  vertical-align: top;
+}
+
+th {
+  background: var(--neutro-fondo);
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--texto-suave);
+}
+
+tr:last-child td { border-bottom: none; }
+
+button, .boton {
+  font: inherit;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--superficie);
+  color: var(--texto);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) { background: var(--neutro-fondo); }
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+button.primario {
+  background: var(--acento);
+  border-color: var(--acento);
+  color: #ffffff;
+}
+
+button.primario:hover:not(:disabled) { background: var(--acento-oscuro); }
+
+button.peligro {
+  background: var(--peligro-fondo);
+  border-color: var(--peligro);
+  color: var(--peligro);
+}
+
+input, select, textarea {
+  font: inherit;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--superficie);
+  color: var(--texto);
+  width: 100%;
+}
+
+label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--texto-suave);
+  margin-bottom: 0.2rem;
+}
+
+.campo { margin-bottom: 0.8rem; }
+
+.fila { display: flex; gap: 0.8rem; flex-wrap: wrap; }
+.fila > * { flex: 1 1 12rem; }
+
+/*
+ * Etiquetas de estado.
+ *
+ * El texto va SIEMPRE junto al color. Es la unica forma de que el estado se
+ * entienda sin depender del color.
+ */
+.estado {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.estado.ok { color: var(--ok); background: var(--ok-fondo); }
+.estado.aviso { color: var(--aviso); background: var(--aviso-fondo); }
+.estado.peligro { color: var(--peligro); background: var(--peligro-fondo); }
+.estado.neutro { color: var(--neutro); background: var(--neutro-fondo); }
+
+/*
+ * Aviso de dato pendiente de verificacion.
+ *
+ * Es el bloque mas importante de la interfaz: dice, en palabras, que el plazo
+ * legal o el margen del lente todavia no se han verificado. Aparece siempre que
+ * el sistema no sabe algo, y nunca se oculta. Ver docs/06.
+ */
+.pendiente {
+  border: 1px solid var(--aviso);
+  background: var(--aviso-fondo);
+  color: var(--aviso);
+  border-radius: var(--radio);
+  padding: 0.6rem 0.8rem;
+  margin: 0.6rem 0;
+  font-size: 0.9rem;
+}
+
+.pendiente strong { display: block; margin-bottom: 0.2rem; }
+
+.aviso-error {
+  border: 1px solid var(--peligro);
+  background: var(--peligro-fondo);
+  color: var(--peligro);
+  border-radius: var(--radio);
+  padding: 0.6rem 0.8rem;
+  margin: 0.6rem 0;
+  font-size: 0.9rem;
+}
+
+.tenue { color: var(--texto-tenue); font-size: 0.85rem; }
+
+.vacio {
+  padding: 2rem;
+  text-align: center;
+  color: var(--texto-tenue);
+}
+
+.marco {
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.marco h2 { margin-top: 0; }

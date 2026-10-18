@@ -1,0 +1,68 @@
+# Dependencias y artefactos que no se versionan.
+#
+# El codigo de `api/`, `web/` y `deploy/` SI se versiona.
+#
+# Lo que se versiona
+# ------------------
+# - las plantillas `.env.example`, para que se sepa que variables hacen falta;
+# - las migraciones, porque son el historial del esquema;
+# - las pruebas, aunque no se hayan corrido. Ver docs/10.
+
+# ---------------------------------------------------------------------------
+# Secretos
+# ---------------------------------------------------------------------------
+
+# NINGUN archivo `.env` real se versiona. Solo las plantillas.
+**/.env
+**/.env.prod
+**/.env.local
+**/.env.backup
+
+# La clave de la aplicacion es un secreto.
+/apps/optica/api/storage/*.key
+
+# ---------------------------------------------------------------------------
+# Dependencias
+# ---------------------------------------------------------------------------
+
+**/node_modules/
+**/vendor/
+
+# ---------------------------------------------------------------------------
+# Artefactos de construccion
+# ---------------------------------------------------------------------------
+
+**/.nuxt/
+**/.output/
+**/dist/
+
+# ---------------------------------------------------------------------------
+# Registros, cache y respaldos
+# ---------------------------------------------------------------------------
+
+**/storage/logs/*
+**/storage/framework/cache/*
+**/storage/framework/sessions/*
+**/storage/framework/views/*
+**/bootstrap/cache/*.php
+
+**/.phpunit.cache/
+**/.phpunit.result.cache
+**/coverage/
+
+# Los respaldos NO se versionan: contienen datos de pacientes.
+/apps/optica/deploy/respaldos/*/
+/apps/optica/deploy/respaldos/*.dump
+/apps/optica/deploy/respaldos/*.sql
+
+# ---------------------------------------------------------------------------
+# Sistema operativo y editores
+# ---------------------------------------------------------------------------
+
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.idea/
+.vscode/

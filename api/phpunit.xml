@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Configuracion de PHPUnit de OpticaHefesto.
+
+    Las suites estan separadas a proposito:
+
+      - `Aislamiento`: una optica no puede leer los datos de otra. Usa
+        Row Level Security de PostgreSQL.
+      - `Permisos`: dentro de la optica, el mostrador no lee graduaciones y
+        el optometrista si.
+      - `Dominio`: lo que no necesita dos opticas ni dos personas: verificacion
+        de compatibilidad armazon/lente, vencimiento de receta y estructura de
+        la graduacion por ojo y meridiano.
+
+    Se pueden correr solas:
+        php artisan test --testsuite=Aislamiento
+        php artisan test --testsuite=Permisos
+        php artisan test --testsuite=Dominio
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+         cacheDirectory=".phpunit.cache"
+         failOnWarning="true"
+         failOnRisky="true"
+         beStrictAboutOutputDuringTests="true">
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Feature">
+            <directory>tests/Feature</directory>
+        </testsuite>
+        <testsuite name="Aislamiento">
+            <directory>tests/Feature/Aislamiento</directory>
+        </testsuite>
+        <testsuite name="Permisos">
+            <directory>tests/Feature/Permisos</directory>
+        </testsuite>
+        <testsuite name="Dominio">
+            <directory>tests/Feature/Dominio</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>app</directory>
+        </include>
+    </source>
+    <php>
+        <env name="APP_ENV" value="testing"/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <env name="BCRYPT_ROUNDS" value="4"/>
+        <env name="CACHE_STORE" value="array"/>
+        <env name="MAIL_MAILER" value="array"/>
+        <env name="QUEUE_CONNECTION" value="sync"/>
+        <env name="SESSION_DRIVER" value="array"/>
+        <!--
+            IMPORTANTE: la base de pruebas tiene que ser PostgreSQL, no SQLite.
+
+            El aislamiento entre opticas esta implementado con Row Level
+            Security, que es una funcion de PostgreSQL. En SQLite estas
+            pruebas pasarian sin comprobar nada: un sistema sin aislamiento
+            alguno tambien daria verde. Ver docs/10.
+        -->
+        <env name="DB_CONNECTION" value="pgsql"/>
+        <env name="DB_DATABASE" value="optica_test"/>
+        <!--
+            Los plazos de vigencia y de conservacion NACEN VACIOS y asi deben
+            quedar en las pruebas: si el archivo `.env` de la maquina los trae
+            puestos, una prueba de vencimiento pasaria por la puerta de atrás.
+            Ver docs/10.
+        -->
+        <env name="OPTICA_VIGENCIA_HASTA_12_ANIOS" value=""/>
+        <env name="OPTICA_VIGENCIA_13_A_17_ANIOS" value=""/>
+        <env name="OPTICA_VIGENCIA_18_A_59_ANIOS" value=""/>
+        <env name="OPTICA_VIGENCIA_DESDE_60_ANIOS" value=""/>
+    </php>
+</phpunit>

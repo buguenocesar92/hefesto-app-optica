@@ -1,0 +1,64 @@
+# =============================================================================
+# Proxy de OpticaHefesto. Caddy se encarga del certificado.
+# =============================================================================
+#
+# SOLO EL PROXY PUBLICA PUERTOS
+# -----------------------------
+# Este es el UNICO servicio con puertos publicados al host. PostgreSQL, Redis,
+# la API y el worker no tienen `ports:` en el compose de produccion: viven en
+# la red interna de Compose y no se pueden alcanzar desde el exterior. Ver
+# docs/04.
+#
+# `{$...}` es una variable de entorno de Caddy. Las de dominio se dejan
+# vacias a proposito en desarrollo: se pueden fijar sin tocar este archivo, y
+# en un despliegue real hay que fijarlas.
+# =============================================================================
+
+{
+	email {$CORREO_PROXY:admin@ejemplo.cl}
+
+	# Hay que poner el dominio real aca para que Caddy pueda pedir el
+	# certificado. Sin dominio, el despliegue queda en HTTP.
+	# {$DOMINIO:localhost}
+}
+
+# -----------------------------------------------------------------------------
+# HTTP
+# -----------------------------------------------------------------------------
+# Sin dominio configurado, todo va a HTTP. Con dominio, Caddy pide el
+# certificado y redirige a HTTPS solo.
+:80 {
+	encode gzip
+
+	# Cabeceras que se agregan a TODAS las respuestas.
+	header {
+		# Impide que el navegador adivine el tipo real de un archivo.
+		X-Content-Type-Options "nosniff"
+
+		# No se permite incrustar la aplicacion en un marco de otro sitio.
+		X-Frame-Options "DENY"
+
+		# No se referencian URLs completas al navegar: las rutas de la
+		# aplicacion ya traen identificadores de paciente.
+		Referrer-Policy "no-referrer"
+
+		# Politica de permisos minima. La aplicacion no usa camara, microfono
+		# ni geolocalizacion.
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+
+		# La API nunca se mete en un iframe.
+		-Server
+	}
+
+	# La interfaz. Nuxt sirve sus propios estaticos desde `.output/public`.
+	# Lo que no empieza con `/api` va aqui.
+	reverse_proxy web:3000
+
+	# La API. `handle_path` quita el prefijo `/api` antes de reenviar, asi que
+	# `/api/v1/yo` llega a la API como `/v1/yo`, que es como estan declaradas sus
+	# rutas. Se reenvia por prefijo para que interfaz y API compartan dominio, y
+	# para que la cookie de sesion viaje siempre en un solo origen.
+	handle_path /api/* {
+		reverse_proxy api:8000
+	}
+}

@@ -1,0 +1,246 @@
+# =============================================================================
+# OpticaHefesto en produccion.
+# =============================================================================
+#
+# SOLO EL PROXY PUBLICA PUERTOS
+# -----------------------------
+# `proxy` es el UNICO servicio con `ports:`. PostgreSQL, Redis, la API, el
+# worker y la interfaz viven en la red interna y no se pueden alcanzar desde
+# fuera del servidor. Publicar 5432, 6379, 27017 o 3306 dejaria la base de
+# datos de las recetas de los pacientes abierta a internet. Ver docs/04.
+#
+# LOS SECRETOS VIENEN DEL ENTORNO
+# -------------------------------
+# Este archivo NO tiene contrasenas. Las lee de un `.env.prod` que no se
+# versiona. Un `docker compose config` imprime los valores resueltos: no hay que
+# pegarlo en ningun lado.
+#
+#     cp .env.prod.example .env.prod   # completar
+#     docker compose --env-file .env.prod up -d
+# =============================================================================
+
+name: optica-hefesto
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL
+  # ---------------------------------------------------------------------------
+  # DOS ROLES, Y NO UNO
+  # -------------------
+  # `POSTGRES_USER` es el rol de ARRANQUE (`optica_admin`): la imagen oficial
+  # ejecuta `initdb --username="$POSTGRES_USER"` y ese rol NACE superusuario. Solo
+  # se usa para `initdb` y para lo administrativo. La aplicacion NUNCA entra con el.
+  #
+  # El rol de la aplicacion (`DB_USERNAME`, `optica` por omision) lo crea
+  # `deploy/postgres/inicializar-rol.sh` al inicializar el volumen, con
+  # NOSUPERUSER y NOBYPASSRLS explicitos, y le da la propiedad de la base para que
+  # las migraciones de Laravel puedan crear el esquema.
+  #
+  # POR QUE IMPORTA: la documentacion de PostgreSQL 18 dice que los superusuarios
+  # "always bypass the row security system", y que `FORCE ROW LEVEL SECURITY`
+  # sujeta solo al DUENO de la tabla, no al superusuario. Con un solo rol las
+  # politicas no se aplicarian y una optica veria las recetas de otra. Ver docs/03.
+  # ---------------------------------------------------------------------------
+  pgsql:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:?falta DB_DATABASE en el .env.prod}
+      POSTGRES_USER: ${DB_ADMIN_USERNAME:-optica_admin}
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD:?falta DB_ADMIN_PASSWORD en el .env.prod}
+      # La zona horaria del servidor no es la de negocio. Ver
+      # `config/optica.php`, que guarda la zona por optica.
+      TZ: UTC
+      PGTZ: UTC
+      # Rol con el que conecta la aplicacion. Lo crea el script de arranque.
+      APP_DB_ROLE: ${DB_USERNAME:?falta DB_USERNAME en el .env.prod}
+      APP_DB_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en el .env.prod}
+      # Rol de la bitacora de accesos a recetas. Por omision es el MISMO rol de la
+      # aplicacion y el script no hace nada. Si se separa con
+      # `DB_AUDITORIA_USERNAME`, hay que definir TAMBIEN `DB_AUDITORIA_PASSWORD`:
+      # el script falla en voz alta antes de crear un rol sin contrasena.
+      APP_DB_AUDIT_ROLE: ${DB_AUDITORIA_USERNAME:-${DB_USERNAME}}
+      APP_DB_AUDIT_PASSWORD: ${DB_AUDITORIA_PASSWORD:-${DB_PASSWORD}}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Este archivo tiene que existir de verdad: si no, Docker monta uno vacio, el
+      # rol no se crea nunca y la API no se puede conectar.
+      - ./postgres/inicializar-rol.sh:/docker-entrypoint-initdb.d/inicializar-rol.sh:ro
+    healthcheck:
+      # `pg_isready` con el rol de la APLICACION: comprueba que la base acepta el
+      # rol que de verdad usa la API, no solo que el proceso vive.
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:?falta DB_USERNAME en el .env.prod} -d ${DB_DATABASE:?falta DB_DATABASE en el .env.prod}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - interna
+    # SIN `ports:` a proposito. Ver la cabecera.
+
+  # ---------------------------------------------------------------------------
+  # Redis
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # La sesion y la cola NO se pueden guardar en memoria: con varias replicas
+    # de la API, un ingreso que caiga en otra replica perderia la sesion.
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD:?falta REDIS_PASSWORD en el .env.prod}
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - interna
+    # SIN `ports:` a proposito.
+
+  # ---------------------------------------------------------------------------
+  # API (Laravel) + worker de colas
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      pgsql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      APP_NAME: ${APP_NAME:-OpticaHefesto}
+      APP_ENV: production
+      APP_KEY: ${APP_KEY:?falta APP_KEY en el .env.prod}
+      APP_DEBUG: "false"
+
+      # Sin HTTPS la cookie de sesion viaja en claro, y con ella el acceso a
+      # las graduaciones. Ver docs/07.
+      SESSION_SECURE_COOKIE: "true"
+
+      # A stderr, nunca a un archivo dentro del contenedor.
+      LOG_CHANNEL: stack
+      LOG_STACK: stderr
+      # `debug` deja el cuerpo de las peticiones en el registro, y las
+      # peticiones llevan graduaciones.
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+      DB_CONNECTION: pgsql
+      DB_HOST: pgsql
+      DB_PORT: 5432
+      DB_DATABASE: ${DB_DATABASE:?falta DB_DATABASE en el .env.prod}
+      DB_USERNAME: ${DB_USERNAME:?falta DB_USERNAME en el .env.prod}
+      DB_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en el .env.prod}
+      DB_SSLMODE: ${DB_SSLMODE:-prefer}
+
+      # La bitacora de accesos usa una conexion aparte para sobrevivir a la
+      # reversa de una peticion denegada. Ver docs/07.
+      DB_AUDITORIA_DATABASE: ${DB_AUDITORIA_DATABASE:-${DB_DATABASE}}
+      DB_AUDITORIA_USERNAME: ${DB_AUDITORIA_USERNAME:-${DB_USERNAME}}
+      DB_AUDITORIA_PASSWORD: ${DB_AUDITORIA_PASSWORD:-${DB_PASSWORD}}
+
+      CACHE_STORE: redis
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?falta REDIS_PASSWORD en el .env.prod}
+      QUEUE_CONNECTION: redis
+
+      AUTHENTIK_ISSUER: ${AUTHENTIK_ISSUER:?falta AUTHENTIK_ISSUER en el .env.prod}
+      AUTHENTIK_CLIENT_ID: ${AUTHENTIK_CLIENT_ID:?falta AUTHENTIK_CLIENT_ID en el .env.prod}
+      AUTHENTIK_CLIENT_SECRET: ${AUTHENTIK_CLIENT_SECRET:?falta AUTHENTIK_CLIENT_SECRET en el .env.prod}
+      AUTHENTIK_REDIRECT_URI: ${AUTHENTIK_REDIRECT_URI:?falta AUTHENTIK_REDIRECT_URI en el .env.prod}
+      AUTHENTIK_GRUPO_POR_OPTICA: ${AUTHENTIK_GRUPO_POR_OPTICA:-OpticaHefesto}
+
+      # El mapa de equipos de Authentik a rol NO se pasa por entorno: es codigo
+      # y va en `config/authentik.php`. Vaciarlo deja a todos con el mismo rol.
+
+      OPTICA_URL_WEB: ${OPTICA_URL_WEB:?falta OPTICA_URL_WEB en el .env.prod}
+
+      # Los plazos y tolerancias que no se han verificado se dejan vacios a
+      # proposito. Ver docs/06.
+      OPTICA_VIGENCIA_HASTA_12_ANIOS: ${OPTICA_VIGENCIA_HASTA_12_ANIOS:-}
+      OPTICA_VIGENCIA_13_A_17_ANIOS: ${OPTICA_VIGENCIA_13_A_17_ANIOS:-}
+      OPTICA_VIGENCIA_18_A_59_ANIOS: ${OPTICA_VIGENCIA_18_A_59_ANIOS:-}
+      OPTICA_VIGENCIA_DESDE_60_ANIOS: ${OPTICA_VIGENCIA_DESDE_60_ANIOS:-}
+      OPTICA_DIAS_DE_AVISO: ${OPTICA_DIAS_DE_AVISO:-30}
+      OPTICA_DIAMETRO_EFECTIVO_MINIMO_MM: ${OPTICA_DIAMETRO_EFECTIVO_MINIMO_MM:-}
+      OPTICA_DIAS_LABORATORIO: ${OPTICA_DIAS_LABORATORIO:-}
+      OPTICA_TOLERANCIA_DIOPTRIAS: ${OPTICA_TOLERANCIA_DIOPTRIAS:-}
+      OPTICA_TOLERANCIA_EJE_GRADOS: ${OPTICA_TOLERANCIA_EJE_GRADOS:-}
+      OPTICA_RETENCION_RECETAS_DIAS: ${OPTICA_RETENCION_RECETAS_DIAS:-}
+      OPTICA_RETENCION_ACCESOS_RECETAS_DIAS: ${OPTICA_RETENCION_ACCESOS_RECETAS_DIAS:-}
+      OPTICA_DIAS_DE_GARANTIA_SUGERIDOS: ${OPTICA_DIAS_DE_GARANTIA_SUGERIDOS:-}
+
+      ESPERA_MAXIMA_SEGUNDOS: "60"
+      MIGRAR_AL_ARRANCAR: ${MIGRAR_AL_ARRANCAR:-true}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8000/v1/salud"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks:
+      - interna
+    # SIN `ports:` a proposito: nginx escucha en 8000 DENTRO de la red, y el
+    # proxy es el unico que habla con el mundo exterior.
+
+  # ---------------------------------------------------------------------------
+  # Interfaz (Nuxt)
+  # ---------------------------------------------------------------------------
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    environment:
+      # Config PRIVADA: solo la usa el servidor de Nuxt para reenviar a la API.
+      # El navegador nunca la ve.
+      NUXT_API_BASE: http://api:8000
+      NUXT_PUBLIC_BASE: ${OPTICA_URL_WEB:?falta OPTICA_URL_WEB en el .env.prod}
+      NODE_ENV: production
+    networks:
+      - interna
+    # SIN `ports:` a proposito.
+
+  # ---------------------------------------------------------------------------
+  # Proxy: el unico con puertos publicados
+  # ---------------------------------------------------------------------------
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+      - web
+    ports:
+      - "${PUERTO_HTTP:-80}:80"
+      - "${PUERTO_HTTPS:-443}:443"
+    environment:
+      CORREO_PROXY: ${CORREO_PROXY:-admin@ejemplo.cl}
+      DOMINIO: ${DOMINIO:-}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    networks:
+      - interna
+
+volumes:
+  pgdata:
+  redisdata:
+  caddydata:
+  caddyconfig:
+
+networks:
+  interna:
+    driver: bridge

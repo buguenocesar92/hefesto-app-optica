@@ -1,0 +1,165 @@
+# =============================================================================
+# OpticaHefesto en desarrollo.
+# =============================================================================
+#
+# QUE CAMBIA RESPECTO DE PRODUCCION
+# ---------------------------------
+#   - Todos los servicios publican puertos, para poder abrir PostgreSQL y
+#     Redis desde el host sin entrar al contenedor.
+#   - `APP_DEBUG=true` y `SESSION_SECURE_COOKIE=false`, porque todavia no hay
+#     HTTPS.
+#   - El codigo se monta en volumen, para que un cambio se vea sin volver a
+#     construir la imagen.
+#   - `opcache.validate_timestamps=1`, para que un cambio se vea al instante.
+#
+# ESTO NO ES UN ENTORNO DE PRUEBAS
+# --------------------------------
+# Ver docs/10: las pruebas de aislamiento necesitan PostgreSQL de verdad, y
+# levantan el esquema ellas mismas. Para las pruebas:
+#
+#     docker compose -f docker-compose.dev.yml up -d pgsql
+#     docker compose -f docker-compose.dev.yml run --rm api php artisan test
+#
+# LO QUE NO CAMBIA RESPECTO DE PRODUCCION
+# ----------------------------------------
+# La separacion de los DOS ROLES. `POSTGRES_USER` es el rol de arranque y nace
+# superusuario; el rol de la aplicacion lo crea
+# `deploy/postgres/inicializar-rol.sh`. En desarrollo tambien, porque un
+# `FORCE ROW LEVEL SECURITY` que se puede saltar aqui se puede saltar ahi.
+#
+# ESTE ARCHIVO NO SE USA EN UN SERVIDOR
+# ------------------------------------
+# Publicar 5432 y 6379 es correcto en una maquina de desarrollo y es un
+# desastre en un servidor. El compose de produccion no publica ninguno.
+# =============================================================================
+
+name: optica-hefesto-dev
+
+services:
+
+  pgsql:
+    image: postgres:17-alpine
+    ports:
+      # Solo para desarrollo. En produccion no se publica. Ver cabecera.
+      - "55432:5432"
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-optica}
+      # Rol de ARRANQUE: la imagen oficial lo crea superusuario, asi que la
+      # aplicacion nunca entra con el.
+      POSTGRES_USER: ${DB_ADMIN_USERNAME:-optica_admin}
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD:-optica_admin_local}
+      TZ: UTC
+      # Rol con el que conecta la aplicacion. Lo crea el script de arranque, con
+      # NOSUPERUSER y NOBYPASSRLS explicitos.
+      APP_DB_ROLE: ${DB_USERNAME:-optica}
+      APP_DB_PASSWORD: ${DB_PASSWORD:-optica}
+      # Por omision es el mismo rol de la aplicacion y el script no hace nada.
+      APP_DB_AUDIT_ROLE: ${DB_AUDITORIA_USERNAME:-${DB_USERNAME:-optica}}
+      APP_DB_AUDIT_PASSWORD: ${DB_AUDITORIA_PASSWORD:-${DB_PASSWORD:-optica}}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Este archivo tiene que existir de verdad: si no, Docker monta uno vacio, el
+      # rol no se crea nunca y la API no se puede conectar.
+      - ./postgres/inicializar-rol.sh:/docker-entrypoint-initdb.d/inicializar-rol.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-optica} -d ${DB_DATABASE:-optica}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/api/Dockerfile
+    depends_on:
+      pgsql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8000:8000"
+    environment:
+      APP_NAME: ${APP_NAME:-OpticaHefesto}
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_KEY: ${APP_KEY:-}
+
+      # En desarrollo todavia no hay HTTPS.
+      SESSION_SECURE_COOKIE: "false"
+
+      LOG_CHANNEL: stack
+      LOG_STACK: stderr
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+      DB_CONNECTION: pgsql
+      DB_HOST: pgsql
+      DB_PORT: 5432
+      DB_DATABASE: ${DB_DATABASE:-optica}
+      DB_USERNAME: ${DB_USERNAME:-optica}
+      DB_PASSWORD: ${DB_PASSWORD:-optica}
+
+      CACHE_STORE: redis
+      REDIS_HOST: redis
+      QUEUE_CONNECTION: redis
+
+      # La interfaz corre en el host durante el desarrollo, asi que CORS tiene
+      # que estar habilitado. En produccion el navegador nunca habla directo
+      # con la API: va por el proxy. Ver web/nuxt.config.ts.
+      OPTICA_URL_WEB: ${OPTICA_URL_WEB:-http://localhost:3000}
+
+      # Los plazos siguen vacios en desarrollo. Ver docs/06.
+      OPTICA_VIGENCIA_HASTA_12_ANIOS: ""
+      OPTICA_VIGENCIA_13_A_17_ANIOS: ""
+      OPTICA_VIGENCIA_18_A_59_ANIOS: ""
+      OPTICA_VIGENCIA_DESDE_60_ANIOS: ""
+      OPTICA_DIAS_DE_AVISO: "30"
+      OPTICA_DIAMETRO_EFECTIVO_MINIMO_MM: ""
+      OPTICA_DIAS_LABORATORIO: ""
+      OPTICA_TOLERANCIA_DIOPTRIAS: ""
+      OPTICA_TOLERANCIA_EJE_GRADOS: ""
+      OPTICA_RETENCION_RECETAS_DIAS: ""
+      OPTICA_RETENCION_ACCESOS_RECETAS_DIAS: ""
+      OPTICA_DIAS_DE_GARANTIA_SUGERIDOS: ""
+
+      ESPERA_MAXIMA_SEGUNDOS: "60"
+      MIGRAR_AL_ARRANCAR: "true"
+    volumes:
+      - ../api:/var/www/html
+      # `storage` y `bootstrap/cache` NO se montan desde el host: si se
+      # montaran, el contenedor escribiria como root y dejaria archivos que la
+      # maquina de desarrollo no puede borrar.
+      - apistorage:/var/www/html/storage
+      - apicache:/var/www/html/bootstrap/cache
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web/Dockerfile
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+    environment:
+      # Dentro de la red de Compose, la API es `api:8000`.
+      NUXT_API_BASE: http://api:8000
+      NUXT_PUBLIC_BASE: ${NUXT_PUBLIC_BASE:-http://localhost:3000}
+      NODE_ENV: development
+    volumes:
+      - ../web:/app
+      - webnode:/app/node_modules
+      - weboutput:/app/.output
+
+volumes:
+  pgdata:
+  redisdata:
+  apistorage:
+  apicache:
+  webnode:
+  weboutput:
