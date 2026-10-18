@@ -245,7 +245,12 @@ Revisar no es probar. Un error de tipeo se ve leyendo, y se detecta corriendo.
 
 1. Instalar el entorno. Ver `docs/04-INSTALACION.md`.
 2. Correr las pruebas. **Empezar por la suite `Aislamiento`.**
-3. Correr `php artisan optica:verificar-aislamiento`.
+3. Correr `php artisan optica:verificar-aislamiento`. Es el paso que revisa el
+   rol de la base: que sea superusuario, o que tenga `BYPASSRLS`, significa que
+   el aislamiento entre ópticas no existe aunque todo lo demás parezca funcionar.
+   La revisión va primera y lee `pg_roles`, así que no necesita que haya datos.
+   **No se ha ejecutado en ninguna base real**: en el equipo donde se escribió no
+   había PostgreSQL ni Docker.
 4. Levantar la aplicación y hacer el recorrido de `docs/06-PRIMERA-RECETA.md`.
 5. Recién ahí, verificar los plazos pendientes con la norma vigente y cargar
    los valores.

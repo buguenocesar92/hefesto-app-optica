@@ -129,6 +129,16 @@ docker compose --env-file .env.prod exec api php artisan optica:verificar-aislam
 
 Si el comando pasa, la base no es superusuario. Es la comprobación.
 
+Esa revisión del rol es la **primera** que hace el comando, antes de mirar las
+tablas y antes de escribir nada, y lee `pg_roles` por `current_user`. No depende
+de que haya datos: contra una base recién creada y vacía, la comprueba igual.
+Si el rol está mal, el comando se detiene ahí y dice qué corregir y dónde está
+el patrón de referencia (`apps/almacen/deploy/postgres/inicializar-rol.sh`).
+
+**No se ha ejecutado en ninguna base real.** En el equipo donde se escribió no
+había PostgreSQL ni Docker. Corrélo en tu instalación antes de atender pacientes:
+es el paso que decide si el aislamiento existe o no.
+
 ### 5. La primera cuenta de administración
 
 El seeder crea la óptica y las cuentas, pero **no alcanza para entrar**: falta

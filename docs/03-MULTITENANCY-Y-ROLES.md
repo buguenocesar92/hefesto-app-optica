@@ -108,10 +108,24 @@ Lo comprueba:
 php artisan optica:verificar-aislamiento
 ```
 
-El comando revisa dos cosas: que las tablas tengan Row Level Security **forzado**,
-y que una óptica no vea los datos de otra. Escribe filas de prueba y las borra
-al terminar. No debe correrse contra una base con pacientes reales en horario de
-atención.
+El comando revisa tres cosas, en este orden:
+
+1. **Que el rol conectado no sea superusuario ni tenga `BYPASSRLS`.** Va primero,
+   y consulta `pg_roles` directamente por `current_user`. A propósito: no depende
+   de que la base tenga datos. Contra una base recién creada y vacía, una
+   comprobación indirecta —leer tablas y ver si se filtran— daría verde sin
+   comprobar nada, porque no hay filas que se puedan filtrar. Los atributos del
+   rol se leen del catálogo, así que la comprobación vale igual con la base vacía.
+2. Que las tablas tengan Row Level Security **forzado**.
+3. Que una óptica no vea los datos de otra.
+
+La segunda y la tercera escriben filas de prueba y las borran al terminar. No
+debe correrse contra una base con pacientes reales en horario de atención.
+
+**Nada de esto se ha ejecutado.** En el equipo donde se escribió este comando no
+había PostgreSQL ni Docker, y no hay `php -l` para comprobar la sintaxis. El
+código se revisó a mano y no se declara probado. Ver
+[10-PRUEBAS-Y-ESTADO.md](10-PRUEBAS-Y-ESTADO.md).
 
 ## La tabla `opticas` no lleva RLS
 
